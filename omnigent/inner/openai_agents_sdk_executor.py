@@ -509,14 +509,14 @@ def _get_openai_async_client(
         from .databricks_executor import _resolve_databricks_auth
 
         auth, host = _resolve_databricks_auth(profile)
-    except ImportError:
+    except ImportError as exc:
         raise ImportError(
             "The 'databricks-sdk' package is required for Databricks "
             "authentication but is not installed, and no OPENAI_API_KEY or "
             "OPENAI_BASE_URL environment variables are set. Either install "
             "the package (`pip install 'omnigent[databricks]'`) or set "
             "OPENAI_API_KEY/OPENAI_BASE_URL for non-Databricks OpenAI access."
-        )
+        ) from exc
     return AsyncOpenAI(
         base_url=base_url_override or _databricks_openai_base_url(host),
         api_key=_OPENAI_KEY_PLACEHOLDER,
