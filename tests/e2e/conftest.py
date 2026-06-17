@@ -241,7 +241,8 @@ def mock_llm_server_url(
             if resp.status_code == 200:
                 break
         except httpx.ConnectError:
-            pass
+            # Expected while the mock server is still booting.
+            continue
         time.sleep(0.1)
     else:
         proc.kill()
