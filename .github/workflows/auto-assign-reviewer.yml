@@ -15,7 +15,7 @@ name: Auto-assign Reviewer
 
 on:
   pull_request_target:
-    types: [opened, ready_for_review]
+    types: [opened, reopened, ready_for_review]
   # Smoke test: when a PR edits this assigner, run it against the PR's OWN
   # version in DRY-RUN (logs picks, mutates nothing) -- same idea as mlflow's
   # skipAssignment. The companion unit test (auto-assign-reviewer.test.js)
