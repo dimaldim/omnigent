@@ -372,11 +372,11 @@ def _get_conversation_id() -> str | None:
 
 
 def _write_cursor_hooks(cwd: str, hook_script_path: str, server_url: str, session_id: str) -> Path:
-    """Write ``.cursor/hooks.json`` to the workspace for preToolUse policy enforcement.
+    """Write ``.cursor/hooks.json`` and a wrapper shell script for preToolUse policy enforcement.
 
-    The hook command bakes the server URL and session ID as inline env vars so
-    the standalone hook script can reach the Omnigent server without any shared
-    state or bridge-directory protocol.
+    The Cursor SDK hook executor runs the command directly (not via a shell),
+    so inline ``env VAR=val`` doesn't work.  Instead we write a tiny shell
+    wrapper that exports the env vars and execs the Python hook script.
 
     :param cwd: Workspace root directory.
     :param hook_script_path: Absolute path to ``cursor_policy_hook.py``.
@@ -387,14 +387,19 @@ def _write_cursor_hooks(cwd: str, hook_script_path: str, server_url: str, sessio
     hooks_dir = Path(cwd) / ".cursor"
     hooks_dir.mkdir(parents=True, exist_ok=True)
     hooks_file = hooks_dir / "hooks.json"
-    # Bake env vars into the command so the hook script can read them without
-    # relying on the bridge subprocess's inherited environment.
-    command = (
-        f"env _OMNIGENT_SERVER_URL={server_url} "
-        f"_OMNIGENT_SESSION_ID={session_id} "
-        f"{sys.executable} {hook_script_path}"
+
+    # Write a wrapper script that sets env vars and execs the hook.
+    wrapper = hooks_dir / "omnigent-hook.sh"
+    wrapper.write_text(
+        f"#!/bin/sh\n"
+        f"export _OMNIGENT_SERVER_URL='{server_url}'\n"
+        f"export _OMNIGENT_SESSION_ID='{session_id}'\n"
+        f"exec '{sys.executable}' '{hook_script_path}'\n"
     )
+    wrapper.chmod(0o755)
+    command = str(wrapper)
     config = {
+        "version": 1,
         "hooks": {
             "preToolUse": [
                 {
@@ -608,7 +613,7 @@ class CursorExecutor(Executor):
             ) from exc
 
         loop = asyncio.get_running_loop()
-        cwd = self._cwd or os.getcwd()
+        cwd = os.path.abspath(self._cwd or os.getcwd())
 
         # Write .cursor/hooks.json for preToolUse policy enforcement.
         # RUNNER_SERVER_URL is inherited by the harness subprocess via
@@ -822,10 +827,13 @@ class CursorExecutor(Executor):
         if state.client is not None:
             await _safe_close(state.client)
             state.client = None
-        # Best-effort cleanup of the hooks.json we wrote at session startup.
+        # Best-effort cleanup of hooks.json and the wrapper script.
         if state.hooks_file is not None:
             try:
                 state.hooks_file.unlink(missing_ok=True)
+                # Also remove the wrapper shell script alongside hooks.json.
+                wrapper = state.hooks_file.parent / "omnigent-hook.sh"
+                wrapper.unlink(missing_ok=True)
             except OSError:
                 pass
             state.hooks_file = None

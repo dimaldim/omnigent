@@ -1084,11 +1084,21 @@ async def test_ensure_session_writes_hooks_json(
     assert len(hooks) == 1
     assert hooks[0]["timeout"] == 30
     cmd = hooks[0]["command"]
-    assert "_OMNIGENT_SERVER_URL=http://127.0.0.1:6767" in cmd
-    assert "_OMNIGENT_SESSION_ID=conv_test123" in cmd
-    assert "cursor_policy_hook.py" in cmd
+    # The command points to the wrapper shell script, not the Python hook directly.
+    assert "omnigent-hook.sh" in cmd
+
+    # Verify the wrapper script exists and contains the env vars + exec.
+    wrapper = tmp_path / ".cursor" / "omnigent-hook.sh"
+    assert wrapper.exists()
+    wrapper_text = wrapper.read_text()
+    assert "_OMNIGENT_SERVER_URL='http://127.0.0.1:6767'" in wrapper_text
+    assert "_OMNIGENT_SESSION_ID='conv_test123'" in wrapper_text
+    assert "cursor_policy_hook.py" in wrapper_text
 
     await executor.close()
+    # Both files are cleaned up on close.
+    assert not hooks_file.exists()
+    assert not wrapper.exists()
 
 
 async def test_hooks_json_not_written_without_server_url(
@@ -1125,10 +1135,13 @@ async def test_hooks_json_cleaned_up_on_close(
     _ = [e async for e in executor.run_turn([_user("hi")], [], "SYS")]
 
     hooks_file = tmp_path / ".cursor" / "hooks.json"
+    wrapper = tmp_path / ".cursor" / "omnigent-hook.sh"
     assert hooks_file.exists()
+    assert wrapper.exists()
 
     await executor.close()
     assert not hooks_file.exists()
+    assert not wrapper.exists()
 
 
 # ---------------------------------------------------------------------------
