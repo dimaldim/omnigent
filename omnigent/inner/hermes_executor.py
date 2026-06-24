@@ -79,8 +79,8 @@ _RE_RESUME_NOTICE = re.compile(r"^↻\s+Resumed\s+session\s+\S+")
 # Matches lines like ``↻ Resumed session NAME ...``.
 _RE_CONTINUE_NOTICE = re.compile(r"^↻\s+Resumed\s+session")
 
-# Prefix for Hermes warning messages that should be stripped from output.
-_WARNING_PREFIX = "Warning:"
+# Prefixes for Hermes warning/notice messages that should be stripped.
+_WARNING_PREFIXES = ("Warning:", "⚠")
 
 
 def _strip_hermes_metadata(output: str) -> str:
@@ -110,7 +110,7 @@ def _strip_hermes_metadata(output: str) -> str:
             continue
         if _RE_CONTINUE_NOTICE.match(stripped):
             continue
-        if stripped.startswith(_WARNING_PREFIX):
+        if stripped.startswith(_WARNING_PREFIXES):
             continue
         filtered.append(line)
     return "\n".join(filtered).strip()
