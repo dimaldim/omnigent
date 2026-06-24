@@ -697,6 +697,57 @@ async def compact(
     )
 
 
+def reduce_messages_to_budget(
+    messages: list[dict[str, Any]],
+    *,
+    context_window: int,
+    model: str,
+    system_token_budget: int = 0,
+    recent_window: int = _DEFAULT_RECENT_WINDOW,
+    trigger_threshold: float = _DEFAULT_TRIGGER_THRESHOLD,
+) -> list[dict[str, Any]]:
+    """
+    Auth-free, LLM-free reduction of a harness-input *messages* list to fit the
+    context-window budget: Layer 1 (surgical clearing) then, if still over, Layer
+    3 (truncate oldest). No summarization, no LLM client, no ``ConversationItem``.
+
+    This is the runner's resume safety net (OMNI-143). A cold-loaded /
+    reconstructed history can exceed the window, and a stateful harness cannot
+    self-compact a single oversized prompt — runner-side overflow is now fatal.
+    This shrinks the history before it reaches the harness without depending on
+    any LLM credentials on the runner (the unreliability Tomu removed from the
+    live path). For LLM summarization use :func:`compact` instead.
+
+    The input list is never mutated; a reduced copy is returned, or the input
+    unchanged when it already fits.
+
+    :param messages: Harness-input message dicts in chronological order.
+    :param context_window: The model's context window in tokens.
+    :param model: The LLM model string (for tiktoken counting).
+    :param system_token_budget: Tokens reserved for the system prompt and tool
+        schemas, subtracted from the window budget.
+    :param recent_window: Number of trailing messages protected from Layer-1
+        clearing (kept verbatim).
+    :param trigger_threshold: Fraction of the window the reduced history must fit
+        within; the remainder leaves headroom for the system prompt and reply.
+    :returns: The reduced messages list, or the original when it already fits.
+    """
+    budget = int(context_window * trigger_threshold) - system_token_budget
+    if budget <= 0 or count_tokens(messages, model) <= budget:
+        return messages
+
+    working = _deep_copy_messages(messages)
+    # Protect the most recent messages from Layer-1 clearing.
+    protect_from = max(0, len(working) - max(recent_window, 1))
+    _clear_tool_results(working, protect_from)
+    _clear_binary_content(working, protect_from)
+    _strip_output_annotations(working, protect_from)
+    if count_tokens(working, model) <= budget:
+        return working
+    # Still over budget after surgical clearing — drop oldest, pair-aware.
+    return _truncate_oldest(working, budget, model)
+
+
 def _deep_copy_messages(
     messages: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:

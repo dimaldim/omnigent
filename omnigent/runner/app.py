@@ -8109,6 +8109,57 @@ def create_runner_app(
 
         return _convert_raw_items_to_input(all_items)
 
+    def _guard_resume_history_budget(
+        conv: str,
+        history: list[dict[str, Any]],
+        msg_body: dict[str, Any],
+        spec: Any,
+    ) -> list[dict[str, Any]]:
+        """
+        Shrink a cold-loaded (resumed / fresh-runner) history to fit the model's
+        context window before it reaches the harness (OMNI-143).
+
+        A stateful harness can't self-compact a single oversized prompt, and a
+        runner-side context overflow is now fatal (no proactive compaction since
+        #1082). This reduces the reconstructed history auth-free — Layer 1 +
+        Layer 3, no LLM/credentials — which is the one place the runner
+        legitimately owns the context, so it does NOT reintroduce the unreliable
+        live-turn compaction #1082 removed. Runs only on the cold-load path (once
+        per conversation per runner), never on subsequent live turns.
+
+        Returns the history unchanged when it already fits or the window is
+        unknown (defer to the harness).
+
+        :param conv: Conversation id, e.g. ``"conv_abc123"``.
+        :param history: Reconstructed harness-input history (may be empty).
+        :param msg_body: This turn's request body (model / model_override).
+        :param spec: The cached agent spec (declared window / model), or None.
+        :returns: The (possibly reduced) history list.
+        """
+        if not history:
+            return history
+        from omnigent.llms.context_window import resolve_effective_context_window
+        from omnigent.runtime.compaction import reduce_messages_to_budget
+
+        model = msg_body.get("model") or (spec.executor.model if spec else None) or ""
+        declared = spec.executor.context_window if spec else None
+        window = resolve_effective_context_window(
+            declared, model or None, model_override=msg_body.get("model_override")
+        )
+        if not window:
+            return history  # unknown window — defer to the harness
+        reduced = reduce_messages_to_budget(history, context_window=window, model=model)
+        if reduced is not history:
+            _logger.warning(
+                "OMNI-143: reduced oversized resume history for conv=%s "
+                "(%d → %d msgs, window=%d) before handing to the harness",
+                conv,
+                len(history),
+                len(reduced),
+                window,
+            )
+        return reduced
+
     def _convert_raw_items_to_input(
         items: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
@@ -11053,6 +11104,13 @@ def create_runner_app(
 
         if conv not in _session_histories:
             _session_histories[conv] = await _load_history_as_input(conv)
+            # OMNI-143: a cold-loaded history (resume / fresh runner) can exceed
+            # the model's window; shrink it auth-free before the harness sees it,
+            # since the harness can't self-compact one oversized prompt and a
+            # runner overflow is now fatal.
+            _session_histories[conv] = _guard_resume_history_budget(
+                conv, _session_histories[conv], msg_body, cached_spec
+            )
 
         harness_body: dict[str, Any] = {
             "type": "message",

@@ -24,6 +24,7 @@ from omnigent.runtime.compaction import (
     compact,
     compaction_to_history_items,
     count_tokens,
+    reduce_messages_to_budget,
     summarize_history,
 )
 from omnigent.spec.types import CompactionConfig
@@ -1506,3 +1507,40 @@ async def test_default_window_compacts_same_fill(monkeypatch: pytest.MonkeyPatch
         llm_client=_ReturnsTextClient("Summary of earlier context."),
     )
     assert result.summary_metadata is not None
+
+
+# ---------------------------------------------------------------------------
+# reduce_messages_to_budget — auth-free resume safety net (OMNI-143)
+# ---------------------------------------------------------------------------
+
+
+def test_reduce_messages_to_budget_truncates_without_llm() -> None:
+    """An over-budget history is brought under budget with no LLM call.
+
+    The OMNI-143 resume safety net shrinks a cold-loaded history before it
+    reaches the harness, using only Layer 1 + Layer 3 (no summarization). Real
+    tiktoken counting, tiny window, so truncation actually converges.
+    """
+    messages: list[dict[str, Any]] = []
+    for _ in range(40):
+        messages.append(_user_msg_dict("alpha beta gamma delta " * 20))
+        messages.append(_assistant_msg_dict("epsilon zeta eta theta " * 20))
+
+    window = 2_000
+    reduced = reduce_messages_to_budget(
+        messages, context_window=window, model="claude-opus-4-8", system_token_budget=0
+    )
+    assert count_tokens(reduced, "claude-opus-4-8") <= int(window * 0.8)
+    assert len(reduced) < len(messages)  # oldest dropped
+    # Input list is never mutated.
+    assert len(messages) == 80
+
+
+def test_reduce_messages_to_budget_is_noop_when_under_budget() -> None:
+    """A history already within budget is returned unchanged (same object)."""
+    messages = [_user_msg_dict("hi"), _assistant_msg_dict("hello")]
+    reduced = reduce_messages_to_budget(
+        messages, context_window=1_000_000, model="claude-opus-4-8"
+    )
+    # Returned as-is (no copy) when it already fits.
+    assert reduced is messages
