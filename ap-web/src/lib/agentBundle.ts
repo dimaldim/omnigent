@@ -108,7 +108,7 @@ export async function buildAgentBundle(input: AgentBundleInput): Promise<File> {
 
   const tarBytes = createTar(files);
   const gzipped = await gzip(tarBytes);
-  return new File([new Blob([gzipped])], "agent.tar.gz", { type: "application/gzip" });
+  return new File([gzipped.buffer], "agent.tar.gz", { type: "application/gzip" });
 }
 
 // ── Helpers ──────────────────────────────────────────────────────
@@ -202,7 +202,7 @@ function writeOctal(header: Uint8Array, offset: number, length: number, value: n
 async function gzip(data: Uint8Array): Promise<Uint8Array> {
   const cs = new CompressionStream("gzip");
   const writer = cs.writable.getWriter();
-  writer.write(data as unknown as BufferSource);
+  writer.write(data.buffer);
   writer.close();
 
   const reader = cs.readable.getReader();
