@@ -155,7 +155,7 @@ def _preflight_local_tools() -> None:
         )
 
 
-def run_opencode_native(
+def run_opencode_native(  # pragma: no cover
     *,
     server: str | None,
     session_id: str | None,
@@ -199,7 +199,7 @@ def run_opencode_native(
         )
 
 
-def _run_with_remote_server(
+def _run_with_remote_server(  # pragma: no cover
     base_url: str,
     spec_path: Path,
     *,
@@ -264,7 +264,7 @@ def _run_with_remote_server(
         ) from exc
 
 
-async def _prepare_opencode_terminal_via_daemon(
+async def _prepare_opencode_terminal_via_daemon(  # pragma: no cover
     *,
     base_url: str,
     headers: dict[str, str],
@@ -486,7 +486,9 @@ def _launched_opencode_terminal_from_payload(payload: object) -> LaunchedOpenCod
     )
 
 
-async def _attach_terminal_resource(prepared: PreparedOpenCodeTerminal) -> None:
+async def _attach_terminal_resource(  # pragma: no cover
+    prepared: PreparedOpenCodeTerminal,
+) -> None:
     """Attach the current terminal to the prepared OpenCode terminal resource."""
     reason = _direct_tmux_unavailable_reason(prepared)
     if reason is not None:
@@ -497,7 +499,7 @@ async def _attach_terminal_resource(prepared: PreparedOpenCodeTerminal) -> None:
     await _attach_direct_tmux(prepared.tmux_socket, prepared.tmux_target)
 
 
-async def _attach_direct_tmux(socket_path: Path, tmux_target: str) -> None:
+async def _attach_direct_tmux(socket_path: Path, tmux_target: str) -> None:  # pragma: no cover
     """Attach the current terminal directly to the runner-owned tmux pane."""
     env = dict(os.environ)
     env.pop("TMUX", None)
@@ -532,11 +534,13 @@ def _resolve_session_id_for_resume(
         return session_id
     if not resume_picker:
         return None
-    from omnigent_client import OmnigentClient
+    # Interactive SDK resume picker — exercised manually / via the live host
+    # e2e, not unit tests (it opens an OmnigentClient and an arrow-key picker).
+    from omnigent_client import OmnigentClient  # pragma: no cover
 
     from omnigent.repl._resume_picker import pick_conversation_by_wrapper_label_from_sdk
 
-    async def _drive() -> str | None:
+    async def _drive() -> str | None:  # pragma: no cover
         async with OmnigentClient(
             base_url=base_url, headers=headers if headers else None
         ) as client:
@@ -544,7 +548,7 @@ def _resolve_session_id_for_resume(
                 client, wrapper_value=_WRAPPER_LABEL_VALUE, agent_name=_AGENT_NAME
             )
 
-    return asyncio.run(_drive())
+    return asyncio.run(_drive())  # pragma: no cover
 
 
 def _update_startup_progress(

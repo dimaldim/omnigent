@@ -180,3 +180,42 @@ async def test_start_polls_until_ready(monkeypatch: pytest.MonkeyPatch, tmp_path
     assert started["argv"][1] == "serve"
     assert server.process is not None
     assert server.process.pid == 4242
+
+
+def test_find_opencode_cli_absolute_executable(tmp_path: Path) -> None:
+    exe = tmp_path / "opencode"
+    exe.write_text("#!/bin/sh\n")
+    exe.chmod(0o755)
+    assert appsrv.find_opencode_cli(str(exe)) == str(exe)
+
+
+def test_resolve_opencode_version_parses(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    monkeypatch.setattr(
+        appsrv.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout="opencode 1.17.7\n", stderr=""),
+    )
+    assert appsrv.resolve_opencode_version("/x/opencode") == "1.17.7"
+
+
+def test_resolve_opencode_version_run_error_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _boom(*_a: object, **_k: object) -> object:
+        raise OSError("cannot exec")
+
+    monkeypatch.setattr(appsrv.subprocess, "run", _boom)
+    with pytest.raises(appsrv.OpenCodeVersionError):
+        appsrv.resolve_opencode_version("/x/opencode")
+
+
+def test_resolve_opencode_version_unparseable_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    monkeypatch.setattr(
+        appsrv.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout="no version here", stderr=""),
+    )
+    with pytest.raises(appsrv.OpenCodeVersionError):
+        appsrv.resolve_opencode_version("/x/opencode")

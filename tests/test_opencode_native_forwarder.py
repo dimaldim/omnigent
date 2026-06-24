@@ -385,3 +385,39 @@ async def test_run_reconnects_until_cap() -> None:
     finally:
         fwd_mod.asyncio.sleep = orig_sleep  # type: ignore[assignment]
     assert calls["n"] == 4  # initial + 3 reconnects
+
+
+async def test_seed_dedupe_from_history_marks_parts_and_roles() -> None:
+    """Resume seeding records message roles and pre-marks text/tool part keys."""
+    server, opencode = _RecordingServerClient(), _FakeOpenCodeClient()
+    opencode.messages = [
+        {
+            "info": {"id": "msg_1", "role": "assistant"},
+            "parts": [
+                {"id": "prt_text", "type": "text"},
+                {"id": "prt_tool", "type": "tool", "callID": "call_1"},
+                "not-a-mapping",
+            ],
+        },
+        {"info": {"id": "msg_2", "role": "user"}, "parts": []},
+        "not-a-mapping-message",
+    ]
+    fwd = _forwarder(server, opencode)
+    await fwd.seed_dedupe_from_history()
+    assert fwd._msg_role == {"msg_1": "assistant", "msg_2": "user"}
+    # Seeded keys are pre-marked, so re-marking returns False (would be deduped).
+    assert fwd.state.mark(fwd._key("text-final", "prt_text")) is False
+    assert fwd.state.mark(fwd._key("tool-call", "call_1")) is False
+
+
+async def test_seed_dedupe_from_history_swallows_errors() -> None:
+    """A history-fetch failure leaves the dedupe empty rather than raising."""
+    server, opencode = _RecordingServerClient(), _FakeOpenCodeClient()
+
+    async def _boom(_sid: str) -> list[dict[str, Any]]:
+        raise RuntimeError("history unavailable")
+
+    opencode.list_messages = _boom  # type: ignore[assignment]
+    fwd = _forwarder(server, opencode)
+    await fwd.seed_dedupe_from_history()  # best-effort → no raise
+    assert fwd._msg_role == {}

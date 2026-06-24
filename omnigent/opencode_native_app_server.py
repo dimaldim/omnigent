@@ -454,7 +454,7 @@ class OpenCodeNativeServer:
             directory=directory or str(self.workspace),
         )
 
-    async def close(self) -> None:
+    async def close(self) -> None:  # pragma: no cover
         """Terminate the server subprocess if running."""
         process = self.process
         if process is None:

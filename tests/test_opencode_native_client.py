@@ -195,3 +195,55 @@ async def test_events_skips_non_json_data() -> None:
     events = [e async for e in client.events()]
     assert [e.type for e in events] == ["x"]
     await client.aclose()
+
+
+async def test_create_session_non_object_body_raises() -> None:
+    client = _client(lambda _r: httpx.Response(200, json=["not", "an", "object"]))
+    with pytest.raises(OpenCodeClientError):
+        await client.create_session()
+    await client.aclose()
+
+
+async def test_get_session_server_error_raises() -> None:
+    client = _client(lambda _r: httpx.Response(500, json={"error": "boom"}))
+    with pytest.raises(OpenCodeClientError):
+        await client.get_session("ses_1")
+    await client.aclose()
+
+
+async def test_get_session_non_object_returns_none() -> None:
+    client = _client(lambda _r: httpx.Response(200, json=["x"]))
+    assert await client.get_session("ses_1") is None
+    await client.aclose()
+
+
+async def test_list_messages_non_list_returns_empty() -> None:
+    client = _client(lambda _r: httpx.Response(200, json={"not": "a list"}))
+    assert await client.list_messages("ses_1") == []
+    await client.aclose()
+
+
+async def test_get_message_non_dict_returns_empty() -> None:
+    client = _client(lambda _r: httpx.Response(200, json=[1, 2]))
+    assert await client.get_message("ses_1", "msg_1") == {}
+    await client.aclose()
+
+
+async def test_prompt_non_dict_returns_empty() -> None:
+    client = _client(lambda _r: httpx.Response(200, json=[1]))
+    assert await client.prompt("ses_1", {"parts": []}) == {}
+    await client.aclose()
+
+
+async def test_fork_non_object_body_raises() -> None:
+    client = _client(lambda _r: httpx.Response(200, json="nope"))
+    with pytest.raises(OpenCodeClientError):
+        await client.fork("ses_1")
+    await client.aclose()
+
+
+async def test_request_json_http_error_raises() -> None:
+    client = _client(lambda _r: httpx.Response(503, json={"error": "down"}))
+    with pytest.raises(OpenCodeClientError):
+        await client.list_messages("ses_1")
+    await client.aclose()

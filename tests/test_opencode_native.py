@@ -204,3 +204,75 @@ async def test_find_terminal_returns_launched() -> None:
 async def test_find_terminal_offline_runner_returns_none() -> None:
     client = _FakeClient(httpx.Response(409, text="session not bound to a runner"))
     assert await _find_running_opencode_terminal(client, "conv_1") is None  # type: ignore[arg-type]
+
+
+# ── launcher local-preflight / progress / tmux-reason / wait helpers ─────────
+
+
+def test_preflight_local_tools_ok(monkeypatch: pytest.MonkeyPatch) -> None:
+    import omnigent.opencode_native as on
+
+    monkeypatch.setattr(on.shutil, "which", lambda _x: "/usr/bin/tmux")
+    on._preflight_local_tools()  # tmux present → no raise
+
+
+def test_preflight_local_tools_missing_tmux_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    import omnigent.opencode_native as on
+
+    monkeypatch.setattr(on.shutil, "which", lambda _x: None)
+    with pytest.raises(click.ClickException):
+        on._preflight_local_tools()
+
+
+def test_update_startup_progress_handles_none_and_active() -> None:
+    from unittest.mock import Mock
+
+    from omnigent.opencode_native import _update_startup_progress
+
+    _update_startup_progress(None, "boot")  # no renderer → no-op branch
+    _update_startup_progress(Mock(), "boot")  # active renderer → update branch
+
+
+def test_tmux_reason_tmux_not_on_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import omnigent.opencode_native as on
+
+    sock = tmp_path / "s.sock"
+    sock.write_text("")
+    monkeypatch.setattr(on.shutil, "which", lambda _x: None)
+    reason = on._direct_tmux_unavailable_reason(_prepared(sock, "t"))
+    assert reason is not None and "tmux is not available" in reason
+
+
+def test_tmux_reason_none_when_socket_and_tmux_present(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import omnigent.opencode_native as on
+
+    sock = tmp_path / "s.sock"
+    sock.write_text("")
+    monkeypatch.setattr(on.shutil, "which", lambda _x: "/usr/bin/tmux")
+    assert on._direct_tmux_unavailable_reason(_prepared(sock, "t")) is None
+
+
+async def test_wait_for_terminal_returns_when_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    import omnigent.opencode_native as on
+
+    term = on.LaunchedOpenCodeTerminal(terminal_id="t", tmux_socket=None, tmux_target=None)
+
+    async def _fake_find(_client: object, _sid: str) -> on.LaunchedOpenCodeTerminal:
+        return term
+
+    monkeypatch.setattr(on, "_find_running_opencode_terminal", _fake_find)
+    got = await on._wait_for_opencode_terminal_ready(object(), "conv_1", timeout_s=5)  # type: ignore[arg-type]
+    assert got is term
+
+
+async def test_wait_for_terminal_times_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    import omnigent.opencode_native as on
+
+    async def _never(_client: object, _sid: str) -> None:
+        return None
+
+    monkeypatch.setattr(on, "_find_running_opencode_terminal", _never)
+    with pytest.raises(click.ClickException):
+        await on._wait_for_opencode_terminal_ready(object(), "conv_1", timeout_s=0)  # type: ignore[arg-type]
