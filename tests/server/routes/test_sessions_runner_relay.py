@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from collections.abc import AsyncIterator
 from types import TracebackType
@@ -464,9 +465,7 @@ async def test_relay_publishes_failed_status_on_tunnel_close() -> None:
         handle = sessions_module._runner_relay_tasks.get(session_id)
         if handle is not None and not handle.task.done():
             handle.task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError, asyncio.TimeoutError):
                 await asyncio.wait_for(handle.task, timeout=1.0)
-            except (asyncio.CancelledError, asyncio.TimeoutError):
-                pass
         sessions_module._runner_relay_tasks.clear()
         session_stream.close(session_id)
